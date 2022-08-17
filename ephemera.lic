@@ -43,7 +43,9 @@ def capture(name)
   end
 end
 
-room_list.each do |roomid|
-  DRCT.walk_to(roomid)
-  pause 1 until sense == true
+loop do
+  room_list.each do |roomid|
+    DRCT.walk_to(roomid)
+    pause 1 until sense == true
+  end
 end
