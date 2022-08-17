@@ -24,7 +24,6 @@ def sense
       capture(name)
       return true
     elsif /^You focus your thoughts on your crystalline fibril, attempting to distinguish the mental figments within the area, but they elude you/ =~ line
-      DRC.message('None found')
       return true
     elsif /^Roundtime:/ =~ line 
       return true
@@ -34,7 +33,6 @@ def sense
 end
 
 def capture(name)
-  echo "capturing"
   noun = name.split.last
   capture = DRC.bput("ephemera capture #{name}",'^You have not yet sensed any little ephemera in this area','You haven\'t detected that type of little ephemeron here','Invoking your crystalline fibril, you extend your thoughts','That is not a known ephemeron','You already have a')
   case capture 
