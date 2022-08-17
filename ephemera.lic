@@ -1,0 +1,49 @@
+custom_require.call(%w[common ommon-travel])
+
+@sense_cooldown = 0
+@last_sense = Time.now - 10000
+room_list = Map.list.select { |room| room.image == Room.current.image }.map(&:id)
+
+def sense
+  return false unless Time.now - @last_sense >= @sense_cooldown  
+  min = 0
+  sec = 0
+  
+  waitrt?
+  pause 0.25
+  fput('ephemera sense')
+  while line = get
+    if /You will need to wait another (?<min>[0-9]+) roisae*n and (?<sec>[0-9]+) seconds before/ =~ line || /You will need to wait another (?<sec>[0-9]+) seconds before your senses have recovered/ =~ line
+      min = min.split.first.to_i
+      sec = sec.split.first.to_i
+      @sense_cooldown = min * 60 + sec
+      @last_sense = Time.now()
+      return false
+    elsif /You detect the presence of an* (?<rarity>\w+) (?<name>[\w\s]+)/ =~ line && /but will need to master your fibril further by capturing more lesser ephemera first/ !~ line
+      name = name.gsub("ephemeron", "").lstrip.rstrip
+      capture(name)
+      return true
+    elsif /^You focus your thoughts on your crystalline fibril, attempting to distinguish the mental figments within the area, but they elude you/ =~ line
+      DRC.message('None found')
+      return true
+    elsif /^Roundtime:/ =~ line 
+      return true
+    end
+  end
+  return true
+end
+
+def capture(name)
+  echo "capturing"
+  noun = name.split.last
+  capture = DRC.bput("ephemera capture #{name}",'^You have not yet sensed any little ephemera in this area','You haven\'t detected that type of little ephemeron here','Invoking your crystalline fibril, you extend your thoughts','That is not a known ephemeron','You already have a')
+  case capture 
+    when /That is not a known ephemeron/,/You haven't detected that type of little ephemeron here/
+      capture = DRC.bput("ephemera capture #{noun}",'^You have not yet sensed any little ephemera in this area','Invoking your crystalline fibril, you extend your thoughts','That is not a known ephemeron','You already have a')
+  end
+end
+
+room_list.each do |roomid|
+  DRCT.walk_to(roomid)
+  pause 1 until sense == true
+end
