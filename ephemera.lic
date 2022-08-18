@@ -1,8 +1,13 @@
+#ephemera.lic
+#This will have you walk through every room in the current map (per Narost) and check for ephemera, attempting to capture anything in your range. The wandering could take you to dangerous rooms, or get stuck repeatedly trying to access areas you do not have access to (or with mapping issues). Be careful before starting the script, and pay attention.
+#It will sit and wait out the cooldown timer after a successful capture. It will stop when every room receives a message confirming no ephemera are available.
+
 custom_require.call(%w[common common-travel])
 
 @sense_cooldown = 0
 @last_sense = Time.now - 10000
-room_list = Map.list.select { |room| room.image == Room.current.image }.map(&:id)
+@void_list = []
+@room_list = Map.list.select { |room| room.image == Room.current.image }.map(&:id)
 
 def sense
   return false unless Time.now - @last_sense >= @sense_cooldown  
@@ -19,11 +24,14 @@ def sense
       @sense_cooldown = min * 60 + sec
       @last_sense = Time.now()
       return false
-    elsif /You detect the presence of an* (?<rarity>\w+) (?<name>[\w\s]+)/ =~ line && /but will need to master your fibril further by capturing more lesser ephemera first/ !~ line
+    elsif (/You detect the presence of an* (?<rarity>\w+) (?<name>[\w\s\-]+)/ =~ line || /You detect the presence of tremendously powerful ephemeron: (a|an|the) (?<name>[\w\s\-]+)/ =~ line) && /but will need to master your fibril further by capturing more lesser ephemera first/ !~ line
       name = name.gsub("ephemeron", "").lstrip.rstrip
       capture(name)
       return true
     elsif /^You focus your thoughts on your crystalline fibril, attempting to distinguish the mental figments within the area, but they elude you/ =~ line
+      return true
+    elsif /^You focus your thoughts on your crystalline fibril, attempting to distinguish the mental figments within the area, but the surroundings feel as if they are void of any little ephemeron activity/
+      @void_list.append(Room.current.id)
       return true
     elsif /^Roundtime:/ =~ line 
       return true
@@ -42,8 +50,13 @@ def capture(name)
 end
 
 loop do
-  room_list.each do |roomid|
+  if @room_list.length == 0
+    DRC.message('No rooms worth sensing in.')
+    exit
+  end
+  @room_list.each do |roomid|
     DRCT.walk_to(roomid)
     pause 1 until sense == true
   end
+  @room_list -= @void_list
 end
