@@ -24,7 +24,7 @@ def sense
       @sense_cooldown = min * 60 + sec
       @last_sense = Time.now()
       return false
-    elsif (/You detect the presence of an* (?<rarity>\w+) (?<name>[\w\s\-]+)/ =~ line || /You detect the presence of tremendously powerful ephemeron: (a|an|the) (?<name>[\w\s\-]+)/ =~ line) && /but will need to master your fibril further by capturing more lesser ephemera first/ !~ line
+    elsif (/You detect the presence of an* (?<rarity>\w+) (?<name>[\w\s\-]+)/ =~ line || /You detect the presence of [a ]*tremendously powerful ephemeron: (a|an|the) (?<name>[\w\s\-]+)/ =~ line) && /but will need to master your fibril further by capturing more lesser ephemera first/ !~ line
       name = name.gsub("ephemeron", "").lstrip.rstrip
       capture(name)
       return true
