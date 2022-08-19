@@ -32,13 +32,11 @@ class Trade
       ],
       [
         { name: 'hunt', regex: /hunt/i, optional: false, description: 'If Trading xp is above half, hunt occasionally using hunting_info: defined in <name>-caravanhunt.yaml' }
+      ],
+      [
+        { name: 'check', regex: /check/i, optional: false, description: 't2-compatible caravan checks. Stays with the caravan until it is leading, and then exits for you to train elsewhere. When run again, it will pick up at the caravan\'s destination.'},
       ]
     ]
-
-    echo '**********************************************************************'
-    echo '**** DETAILS ON SCRIPT USAGE AND CONFIGURATION CAN BE FOUND ON    ****'
-    echo '**** https://github.com/rpherbig/dr-scripts/wiki/Trader-Tutorials ****'
-    echo '**********************************************************************'
 
     args = parse_args(arg_definitions)
     @closeup = args.closeup
@@ -46,6 +44,8 @@ class Trade
     @hunt = args.hunt
     @caravan = OpenStruct.new
     @duration = args.minutes
+    @tradecheck = true if args.check
+
 
     @town_data = get_data('town')
     @crafting_data = get_data('crafting')
@@ -77,6 +77,8 @@ class Trade
     @held_contracts = []
     @force_contract_from = []
     @inconvenient_contract_threshold = 0
+    @before_scripts = @settings.trade_before_scripts
+    @after_scripts = @settings.trade_after_scripts
     Flags.add('lead-arrived', '^The .* stops and waits, having arrived at its destination', '^You feel the momentum of the room shift and then hear a voice from outside announce')
     Flags.add('lead-failed', '^Your caravan guide comes to you and suggests')
     Flags.add('caravan-arrived', /^Your .*, following you/)
@@ -131,6 +133,8 @@ class Trade
     end
 
     setup_town_data
+    check_single_cycle
+    execute_extra_scripts(@before_scripts)
     validate_requirements(args)
     be_outside_caravan
     @time_to_end = Time.now + 60 * @duration.to_i if @duration
@@ -163,7 +167,58 @@ class Trade
       take_caravan_to(@current_caravan_destination)
       exit
     else
+      if !@closeup
+          UserVars.CaravanDestination = nil
+          UserVars.CaravanTime = nil
+          UserVars.CaravanMoving = nil
+      end
       start_up
+    end
+  end
+	
+  def estimate_trip_home
+    previous, shortest_distances = Map.dijkstra(Room.current.id, @settings.safe_room)
+    return shortest_distances[@settings.safe_room]
+  end
+  
+  def check_single_cycle
+    echo "check vars:"
+    echo UserVars.CaravanMoving
+    echo UserVars.CaravanTime
+    echo UserVars.CaravanEstTrip
+    echo UserVars.CaravanDestination
+  
+    return unless @tradecheck || @closeup
+    return if UserVars.CaravanMoving.nil? || UserVars.CaravanMoving == false
+    UserVars.CaravanTime = Time.now() - 10000 if UserVars.CaravanTime == nil
+    UserVars.CaravanEstTrip = 0 if UserVars.CaravanEstTrip == nil
+    if Time.now() - UserVars.CaravanTime <= UserVars.CaravanEstTrip
+        arrival_time = (UserVars.CaravanTime + UserVars.CaravanEstTrip - Time.now()).to_i.to_s
+        echo "The caravan is still traveling to room " + UserVars.CaravanDestination.to_s + " for the next " + arrival_time + " seconds. We should train."
+        exit
+    end
+    
+    execute_extra_scripts(@before_scripts)
+    
+    DRCT.walk_to(UserVars.CaravanDestination.to_i)
+    while !recall_caravan?
+        echo "Caravan's not here! Pausing and checking again soon."
+        pause 4.5
+    end
+    UserVars.CaravanMoving = false
+    UserVars.CaravanEstTrip = nil
+    run
+  
+  end
+  #ripped out of hunting-buddy/burgle
+  def execute_extra_scripts(extra_scripts)
+    DRC.message('Executing scripts!')
+    echo extra_scripts
+    extra_scripts.each do |script|
+      DRC.message "***STATUS*** EXECUTE #{script}"
+      script_args = script.split(' ')
+      script_name = script_args.shift
+      DRC.wait_for_script_to_complete(script_name, script_args)
     end
   end
 
@@ -292,7 +347,7 @@ class Trade
       DRC.message('Something has gone wrong!  Put in an issue at https://github.com/rpherbig/dr-scripts/issues/new with a log of this event!')
       exit
     end
-
+    save_caravan_position(Room.current.id)
     fput('exit') if @exit
     exit
   end
@@ -439,8 +494,9 @@ class Trade
     forbid_certain_transport
     @trading_towns.select { |name, _info| @inconvenient_towns.include?(name) }
                   .each   { |_name, info| amount += info['contracts_to'] }
-
-    if amount >= @inconvenient_contract_threshold
+    if @earliest_contract.deadline - Time.now() <= 60*60
+        @emergency_delivery_town = @earliest_contract.destination_town
+    elsif amount >= @inconvenient_contract_threshold
       @emergency_delivery_town = @trading_towns.sort_by { |_name, info| time_to_room(Room.current.id, info['trader_outpost']['id']) }
                                                .max_by  { |_name, info| info['contracts_to'] }.first
       echo "Emergency delivery needed to #{@emergency_delivery_town}"
@@ -604,11 +660,38 @@ class Trade
     @caravan_being_led = true
     return false unless command_caravan?("lead to #{town_lead_name(town_name)}")
     save_caravan_position(outpost_from_name(town_name))
-    be_inside_caravan
+    be_inside_caravan unless @tradecheck
     pause 2
-    until Flags['lead-arrived'] || Flags['lead-failed'] # main wait loop while training happens
-      lead_training
-      pause 1.5
+    
+    nearest_town = closest_town
+    destination_town = find_town(@current_caravan_destination)
+    UserVars.CaravanDestination = outpost_from_name(town_name)
+    UserVars.CaravanTime = Time.now()
+    
+	
+    if (nearest_town == "Leth Deriel" && town_lead_name(town_name) == "Crossing")
+        UserVars.CaravanDestination = 1905
+    else
+        UserVars.CaravanDestination = outpost_from_name(town_name)
+    end
+    if estimate_trip_home <= 45 && (@closeup == false || @closeup.nil? || @closeup != "closeup")  && ( @earliest_contract.deadline - Time.now() >= 60*60) && @tradecheck
+        UserVars.CaravanMoving = true
+        echo UserVars.CaravanDestination
+        path = compute_path(UserVars.CaravanDestination)        
+        UserVars.CaravanEstTrip = (path.length-1)*4 #Assumes 4 seconds to move through each room (accurate when caravan is moving fast)
+        DRC.message("It should take " + (UserVars.CaravanEstTrip/60.0).to_s + " minutes until next destination" )
+        DRC.bput('prepare symbiosis', 'You recall the exact details of the', 'But you\'ve already prepared', 'Please don\'t do that here')
+        bput('release symbiosis', "But you haven't", 'You release', 'Repeat this command')
+        execute_extra_scripts(@after_scripts)
+        
+        exit
+    else
+
+        until Flags['lead-arrived'] || Flags['lead-failed'] # main wait loop while training happens
+          
+          lead_training
+          pause 1.5
+        end
     end
 
     training_cleanup
@@ -618,7 +701,7 @@ class Trade
       Flags.reset('lead-arrived')
       false
     else
-      perform_outside_move(@outside_exits[town_name]) if @outside_exits[town_name]
+      perform_outside_move(@outside_exits[town_name]) if @outside_exits[town_name] && !@tradecheck
       Flags.reset('lead-arrived')
       true
     end
@@ -654,7 +737,7 @@ class Trade
   def be_outside_caravan # call whenever you need to be outside the caravan
     return unless XMLData.room_title.include?('Interior')
     waitrt?
-    move('go door')
+    fput('go door')
     pause 1
   end
 
@@ -690,8 +773,8 @@ class Trade
       @caravan.adjective ||= description.split.first
       @last_seen_caravan = [Room.current.id, Time.now]
       true
-    when /You (seem to )?recall that your (?<description>.*) (?<name>.*)/
-      /You recall that your (?<description>.*) (?<name>.*)/ =~ response
+    when /You (seem to )?recall that your (?<description>.*) (?<name>.*) should/
+      /You recall that your (?<description>.*) (?<name>.*) should/ =~ response
       @caravan.noun ||= name
       @caravan.adjective ||= description.split.first
       false
@@ -718,6 +801,7 @@ class Trade
 
   def gather_contracts # reads every contract you have and adds their data to @held_contracts for use elsewhere
     echo 'gathering contracts' if debugging?
+    @earliest_contract = nil
     @held_contracts = []
     contracts = find_contracts(@contract_container)
     (0..contracts.length - 1).each do |ord|
@@ -729,6 +813,7 @@ class Trade
     destination_re = /^ The guild office at (?:The )?(?<destination>.*) requires .*/
     payment_re = /^You estimate these goods are currently worth (.*) (Kronars|Dokoras|Lirums) on delivery\./
     origin_re = /^ Trading Contract Issued by:  (?:The )?(?<origin>.*)/
+    time_re = /^ *to be delivered within (?<estimator>about|a bit over)* *(?<num>[0-9an]+) (?<period>[a-z]+)/
     contract = OpenStruct.new
     contract.presented = true
     contract.expired = false
@@ -739,6 +824,16 @@ class Trade
         contract.destination_outpost = @town_data[contract.destination_town]['trader_outpost']['id']
         contract.destination_clerk = @town_data[contract.destination_town]['shipment_clerk']['id']
         contract.destination_minister = @town_data[contract.destination_town]['trade_minister']['id']
+      elsif deadline = line.match(time_re)
+        contract.deadline_num = deadline[:num].to_i
+        contract.deadline_num = 1 if deadline[:num] == 'an'
+        contract.deadline_period = deadline[:period].to_s
+        earth_period = 0
+        earth_period = 30*60 if ['anlas','anlaen'].include?(contract.deadline_period)
+        earth_period = 60*60 if ['hour','hours'].include?(contract.deadline_period)
+        earth_period = 24*60*60 if ['andu','andaen'].include?(contract.deadline_period)
+        
+        contract.deadline = Time.now() + earth_period * contract.deadline_num
       elsif line =~ payment_re
         # This is the last line of the contract so break when finished
         contract.payment, contract.currency = line.match(payment_re).captures
@@ -761,7 +856,16 @@ class Trade
       echo "Contract origin minister room: #{contract.origin_minister}"
       echo "Contract destination town: #{contract.destination_town}"
       echo "Contracted presented to clerk? #{contract.presented}"
+      echo "Contracted deadline num? #{contract.deadline_num}"
+      echo "Contracted deadline period? #{contract.deadline_period}"
+      echo "Contracted deadline time? #{contract.deadline}"
     end
+    if (@earliest_contract == nil || @earliest_contract.deadline == nil)
+      @earliest_contract = contract if contract.expired == false && contract.presented == true
+    elsif contract.deadline < @earliest_contract.deadline && contract.expired == false && contract.presented =- true
+      @earliest_contract = contract 
+    end
+    
     contract
   end
 
@@ -828,6 +932,7 @@ class Trade
   end
 
   def step(dir) # takes normal steps and handles stringprocs
+    return unless dir
     echo "step dir: #{dir}" if debugging?
     case dir
     when String
@@ -986,7 +1091,7 @@ class Trade
   def save_caravan_position(room)
     return unless caravan_check?
     @last_seen_caravan = [room, Time.now]
-    UserVars.last_seen_caravan = { 'room' => room, 'last_seen' => Time.now, 'stabled' => Room.current.title.include?(/Stable|Barn/) }
+    UserVars.last_seen_caravan = { 'room' => room, 'last_seen' => Time.now, 'stabled' => Room.current.title.first.match?(/Stable|Barn/) }
   end
 
   def return_to_caravan
@@ -1032,6 +1137,7 @@ class Trade
         walk_training
         wait_for_caravan
         @step_toggle += 1
+        pause 0.25
       end
       echo 'Caravan arrival detected' if debugging?
     end
@@ -1190,7 +1296,7 @@ class Trade
     end
   end
 
-  def feed_caravan # feeds your caravan from a feedbag.
+  def feed_caravan # feeds your caravan from a feedbag.  
     bput('open my feedbag', 'You open', 'What were', 'That is already')
     feed_messages = [
       'The driver takes the feedbag from you',
@@ -2012,6 +2118,7 @@ class Trade
   end
 
   def check_wounds
+    return if @tradecheck
     room = Room.current.id
     shift_hometown(closest_town)
     wait_for_script_to_complete('safe-room')
@@ -2023,6 +2130,7 @@ class Trade
     echo "Town business" if debugging?
     count_materials(@outfitting_material_type) if @caravan_training_skills.include?('Outfitting')
     count_materials('balsa lumber') if @caravan_training_skills.include?('Engineering')
+    return unless closest_town == @settings.hometown
     return if time_to_room(Room.current.id, find_closest_id('trader_outpost')) > 5.0
     save_caravan_position(Room.current.id)
     command_caravan?('wait')
@@ -2217,6 +2325,7 @@ class Trade
   end
 
   def get_storage_inventory
+    return if @tradecheck
     return unless @use_storage_box
     be_outside_caravan
     open_storage_box
