@@ -182,12 +182,6 @@ class Trade
   end
   
   def check_single_cycle
-    echo "check vars:"
-    echo UserVars.CaravanMoving
-    echo UserVars.CaravanTime
-    echo UserVars.CaravanEstTrip
-    echo UserVars.CaravanDestination
-  
     return unless @tradecheck || @closeup
     return if UserVars.CaravanMoving.nil? || UserVars.CaravanMoving == false
     UserVars.CaravanTime = Time.now() - 10000 if UserVars.CaravanTime == nil
@@ -212,8 +206,6 @@ class Trade
   end
   #ripped out of hunting-buddy/burgle
   def execute_extra_scripts(extra_scripts)
-    DRC.message('Executing scripts!')
-    echo extra_scripts
     extra_scripts.each do |script|
       DRC.message "***STATUS*** EXECUTE #{script}"
       script_args = script.split(' ')
@@ -676,19 +668,14 @@ class Trade
     end
     if estimate_trip_home <= 45 && (@closeup == false || @closeup.nil? || @closeup != "closeup")  && ( @earliest_contract.deadline - Time.now() >= 60*60) && @tradecheck
         UserVars.CaravanMoving = true
-        echo UserVars.CaravanDestination
         path = compute_path(UserVars.CaravanDestination)        
         UserVars.CaravanEstTrip = (path.length-1)*4 #Assumes 4 seconds to move through each room (accurate when caravan is moving fast)
         DRC.message("It should take " + (UserVars.CaravanEstTrip/60.0).to_s + " minutes until next destination" )
-        DRC.bput('prepare symbiosis', 'You recall the exact details of the', 'But you\'ve already prepared', 'Please don\'t do that here')
-        bput('release symbiosis', "But you haven't", 'You release', 'Repeat this command')
         execute_extra_scripts(@after_scripts)
         
         exit
     else
-
         until Flags['lead-arrived'] || Flags['lead-failed'] # main wait loop while training happens
-          
           lead_training
           pause 1.5
         end
