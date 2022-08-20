@@ -849,7 +849,7 @@ class Trade
     end
     if (@earliest_contract == nil || @earliest_contract.deadline == nil)
       @earliest_contract = contract if contract.expired == false && contract.presented == true
-    elsif contract.deadline < @earliest_contract.deadline && contract.expired == false && contract.presented =- true
+    elsif contract.deadline < @earliest_contract.deadline && contract.expired == false && contract.presented == true
       @earliest_contract = contract 
     end
     
