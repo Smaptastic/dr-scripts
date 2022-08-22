@@ -869,8 +869,6 @@ class Trade
   end
 
   def count_grass # sets @current_grass_count of grass in feedbag
-    @current_grass_count = 100
-    return
     result = DRC.bput('look in my feedbag', 'That is closed', 'you see .*', 'While it\'s closed', 'I could not find', 'There is nothing', 'Maybe if you')
     case result
     when 'That is closed', 'Maybe if you'
