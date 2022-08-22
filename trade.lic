@@ -805,7 +805,7 @@ class Trade
     contract = OpenStruct.new
     contract.presented = true
     contract.expired = false
-    put("read my #{ordinal} contract in my #{@contract_container}")
+    fput("read my #{ordinal} contract in my #{@contract_container}")
     while line = get
       if line =~ destination_re
         contract.destination_town = line.match(destination_re).captures.first
