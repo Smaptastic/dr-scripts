@@ -1285,7 +1285,6 @@ class Trade
   end
 
   def feed_caravan # feeds your caravan from a feedbag.  
-    return
     bput('open my feedbag', 'You open', 'What were', 'That is already')
     feed_messages = [
       'The driver takes the feedbag from you',
