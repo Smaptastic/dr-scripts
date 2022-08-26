@@ -727,6 +727,7 @@ class Trade
     waitrt?
     fput('go door')
     pause 1
+    fput('look')
   end
 
   def track_caravan # requires caravan to be in-room with you.
