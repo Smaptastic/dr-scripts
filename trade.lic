@@ -52,6 +52,7 @@ class Trade
     @recipe_data = get_data('recipes')
     @equipment_manager = EquipmentManager.new
     @settings = get_settings
+    @settings.hometown = @settings.trade_town || @settings.fang_cove_override_town || @settings.hometown
     @contract_container = @settings.trade_contract_container
     @trading_towns = {}
     @province = nil
