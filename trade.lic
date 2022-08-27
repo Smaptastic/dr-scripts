@@ -186,7 +186,7 @@ class Trade
     return if UserVars.CaravanMoving.nil? || UserVars.CaravanMoving == false
     UserVars.CaravanTime = Time.now() - 10000 if UserVars.CaravanTime == nil
     UserVars.CaravanEstTrip = 0 if UserVars.CaravanEstTrip == nil
-    if Time.now() - UserVars.CaravanTime <= UserVars.CaravanEstTrip
+    if Time.now() - UserVars.CaravanTime <= UserVars.CaravanEstTrip && !@closeup
         arrival_time = (UserVars.CaravanTime + UserVars.CaravanEstTrip - Time.now()).to_i.to_s
         echo "The caravan is still traveling to room " + UserVars.CaravanDestination.to_s + " for the next " + arrival_time + " seconds. We should train."
         exit
@@ -194,10 +194,19 @@ class Trade
     
     execute_extra_scripts(@before_scripts)
     
+    count_materials(@outfitting_material_type) if @caravan_training_skills.include?('Outfitting')	
+    count_materials('balsa lumber') if @caravan_training_skills.include?('Engineering')	
+    buy_outfitting_mats	
+    buy_wood	
+    ensure_copper_on_hand(@caravan_coins_on_hand, @settings)
+    
     DRCT.walk_to(UserVars.CaravanDestination.to_i)
     while !recall_caravan?
         echo "Caravan's not here! Pausing and checking again soon."
         pause 4.5
+        if @closeup	
+            pause 1 until Time.now() - UserVars.CaravanTime > UserVars.CaravanEstTrip 	
+        end
     end
     UserVars.CaravanMoving = false
     UserVars.CaravanEstTrip = nil
